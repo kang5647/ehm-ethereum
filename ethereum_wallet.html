@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HASS Contract Interaction Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
+    <style>
+      .button {
+        padding: 10px;
+        margin: 5px;
+        cursor: pointer;
+      }
+      .section {
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>HASS Contract Interaction Simulation</h1>
+    <button id="connectButton" class="button">Connect MetaMask</button>
+    <div id="accountInfo"></div>
+
+    <div id="ownerSection" class="section" style="display: none">
+      <h2>Owner Actions</h2>
+      <input type="text" id="newOwnerAddress" placeholder="New Owner Address" />
+      <button id="addOwnerButton" class="button">Add Owner</button>
+      <button id="removeOwnerButton" class="button">Remove Owner</button>
+      <div>
+        <input type="text" id="scholarAddress" placeholder="Scholar Address" />
+        <button id="addScholarButton" class="button">Add Scholar</button>
+        <button id="removeScholarButton" class="button">Remove Scholar</button>
+        <button id="viewScholarsButton" class="button">View Scholars</button>
+      </div>
+      <div id="scholarsInfo" class="section"></div>
+    </div>
+
+    <div id="scholarSection" class="section" style="display: none">
+      <h2>Scholar Actions</h2>
+      <input type="number" id="docId" placeholder="Document ID" />
+      <input type="text" id="editHash" placeholder="Edit Hash (IPFS)" />
+      <input type="number" id="startChar" placeholder="Start Character" />
+      <input type="number" id="endChar" placeholder="End Character" />
+      <button id="addEditButton" class="button">Add Edit</button>
+    </div>
+
+    <div class="section">
+      <h2>View Edits</h2>
+      <input type="number" id="viewDocId" placeholder="Document ID" />
+      <button id="viewEditsButton" class="button">View Edits</button>
+    </div>
+
+    <div id="editsInfo" class="section"></div>
+
+    <script>
+      const contractAddress = "0x1b09Cf5e1946F0192ea8761a3475a6F5b4c33789";
+      let contractABI;
+
+      // Load the ABI from the external JSON file
+      fetch("contract-abi.json")
+        .then((response) => response.json())
+        .then((data) => {
+          contractABI = data;
+          console.log("ABI loaded successfully");
+        })
+        .catch((error) => console.error("Error loading ABI:", error));
+
+      let web3;
+      let contract;
+      let currentAccount;
+
+      const connectButton = document.getElementById("connectButton");
+      const accountInfo = document.getElementById("accountInfo");
+      const ownerSection = document.getElementById("ownerSection");
+      const scholarSection = document.getElementById("scholarSection");
+      const addOwnerButton = document.getElementById("addOwnerButton");
+      const removeOwnerButton = document.getElementById("removeOwnerButton");
+      const addScholarButton = document.getElementById("addScholarButton");
+      const removeScholarButton = document.getElementById(
+        "removeScholarButton"
+      );
+      const viewScholarsButton = document.getElementById("viewScholarsButton");
+      const addEditButton = document.getElementById("addEditButton");
+      const viewEditsButton = document.getElementById("viewEditsButton");
+      const scholarsInfo = document.getElementById("scholarsInfo");
+      const editsInfo = document.getElementById("editsInfo");
+
+      async function connectWallet() {
+        if (typeof window.ethereum !== "undefined") {
+          try {
+            await window.ethereum.request({ method: "eth_requestAccounts" });
+            web3 = new Web3(window.ethereum);
+            const accounts = await web3.eth.getAccounts();
+            currentAccount = accounts[0];
+            contract = new web3.eth.Contract(contractABI, contractAddress);
+            updateUI();
+            checkRole();
+          } catch (error) {
+            console.error("Failed to connect wallet:", error);
+            accountInfo.textContent =
+              "Failed to connect wallet. Please try again.";
+          }
+        } else {
+          accountInfo.textContent = "Please install MetaMask!";
+        }
+      }
+
+      async function disconnectWallet() {
+        if (window.ethereum && window.ethereum.disconnect) {
+          try {
+            await window.ethereum.disconnect();
+          } catch (error) {
+            console.error("Error disconnecting from wallet:", error);
+          }
+        } else if (window.ethereum && window.ethereum.close) {
+          // Fallback for older versions or different providers
+          try {
+            await window.ethereum.close();
+          } catch (error) {
+            console.error("Error closing wallet connection:", error);
+          }
+        }
+
+        // Clear the local state regardless of the wallet provider's disconnect method
+        web3 = null;
+        currentAccount = null;
+        contract = null;
+
+        updateUI();
+        ownerSection.style.display = "none";
+        scholarSection.style.display = "none";
+
+        console.log("Disconnected from wallet");
+      }
+
+      function truncateAddress(address) {
+        if (address) {
+          return address.slice(0, 6) + "..." + address.slice(-4);
+        }
+        return "Not connected";
+      }
+
+      function updateUI() {
+        if (currentAccount) {
+          connectButton.textContent = "Disconnect";
+          connectButton.onclick = disconnectWallet;
+          accountInfo.innerHTML = `Connected: <button id="switchAccountButton" class="button">${truncateAddress(
+            currentAccount
+          )}</button>`;
+          document.getElementById("switchAccountButton").onclick =
+            switchAccount;
+          viewScholars();
+        } else {
+          connectButton.textContent = "Connect MetaMask";
+          connectButton.onclick = connectWallet;
+          accountInfo.textContent = "";
+          scholarsInfo.innerHTML = "";
+        }
+      }
+
+      async function switchAccount() {
+        try {
+          await window.ethereum.request({
+            method: "wallet_requestPermissions",
+            params: [{ eth_accounts: {} }],
+          });
+          const accounts = await web3.eth.getAccounts();
+          currentAccount = accounts[0];
+          updateUI();
+          checkRole();
+        } catch (error) {
+          console.error("Failed to switch account:", error);
+        }
+      }
+
+      async function checkRole() {
+        const isOwner = await contract.methods
+          .hasRole(web3.utils.soliditySha3("OWNER_ROLE"), currentAccount)
+          .call();
+        const isScholar = await contract.methods
+          .hasRole(web3.utils.soliditySha3("SCHOLAR_ROLE"), currentAccount)
+          .call();
+        ownerSection.style.display = isOwner ? "block" : "none";
+        scholarSection.style.display = isScholar ? "block" : "none";
+      }
+
+      async function addOwner() {
+        const newOwnerAddress =
+          document.getElementById("newOwnerAddress").value;
+        addOwnerButton.textContent = "Adding...";
+        try {
+          await contract.methods
+            .addOwner(newOwnerAddress)
+            .send({ from: currentAccount });
+          alert("Owner added successfully!");
+          viewScholars();
+        } catch (error) {
+          console.error("Error adding owner:", error);
+          alert("Failed to add owner. Check console for details.");
+        }
+        addOwnerButton.textContent = "Add Owner";
+      }
+
+      async function removeOwner() {
+        const ownerAddress = document.getElementById("newOwnerAddress").value;
+        removeOwnerButton.textContent = "Removing...";
+        try {
+          await contract.methods
+            .removeOwner(ownerAddress)
+            .send({ from: currentAccount });
+          alert("Owner removed successfully!");
+          viewScholars();
+        } catch (error) {
+          console.error("Error removing owner:", error);
+          alert("Failed to remove owner. Check console for details.");
+        }
+        removeOwnerButton.textContent = "Remove Owner";
+      }
+
+      async function addScholar() {
+        const scholarAddress = document.getElementById("scholarAddress").value;
+        addScholarButton.textContent = "Adding...";
+        try {
+          await contract.methods
+            .addScholar(scholarAddress)
+            .send({ from: currentAccount });
+          alert("Scholar added successfully!");
+          viewScholars();
+        } catch (error) {
+          console.error("Error adding scholar:", error);
+          alert("Failed to add scholar. Check console for details.");
+        }
+        addScholarButton.textContent = "Add Scholar";
+      }
+
+      async function removeScholar() {
+        const scholarAddress = document.getElementById("scholarAddress").value;
+        removeScholarButton.textContent = "Removing...";
+        try {
+          await contract.methods
+            .removeScholar(scholarAddress)
+            .send({ from: currentAccount });
+          alert("Scholar removed successfully!");
+          viewScholars();
+        } catch (error) {
+          console.error("Error removing scholar:", error);
+          alert("Failed to remove scholar. Check console for details.");
+        }
+        removeScholarButton.textContent = "Remove Scholar";
+      }
+
+      async function viewScholars() {
+        viewScholarsButton.textContent = "Loading...";
+        try {
+          const scholars = await contract.methods.getScholars().call();
+          scholarsInfo.innerHTML =
+            "<h3>Scholars:</h3>" +
+            scholars.map((scholar) => truncateAddress(scholar)).join("<br>");
+        } catch (error) {
+          console.error("Error viewing scholars:", error);
+          scholarsInfo.innerHTML =
+            "Failed to load scholars. Check console for details.";
+        }
+        viewScholarsButton.textContent = "View Scholars";
+      }
+
+      async function addEdit() {
+        const docId = document.getElementById("docId").value;
+        const editHash = document.getElementById("editHash").value;
+        const startChar = document.getElementById("startChar").value;
+        const endChar = document.getElementById("endChar").value;
+        addEditButton.textContent = "Adding...";
+        try {
+          await contract.methods
+            .addEdit(docId, editHash, startChar, endChar)
+            .send({ from: currentAccount });
+          alert("Edit added successfully!");
+          document.getElementById("viewDocId").value = docId;
+          viewEdits(docId);
+        } catch (error) {
+          console.error("Error adding edit:", error);
+          alert("Failed to add edit. Check console for details.");
+        }
+        addEditButton.textContent = "Add Edit";
+      }
+
+      async function viewEdits(docIdParam) {
+        const docId = document.getElementById("viewDocId").value || docIdParam;
+        viewEditsButton.textContent = "Loading...";
+        try {
+          const edits = await contract.methods.getDocumentEdits(docId).call();
+          editsInfo.innerHTML =
+            "<h3>Edits for Document " +
+            docId +
+            ":</h3>" +
+            edits
+              .map(
+                (edit) =>
+                  `Edit ID: ${edit.editId}, Hash: ${edit.hash}, 
+            Start: ${edit.startChar}, End: ${edit.endChar}, 
+            Timestamp: ${new Date(edit.timestamp * 1000).toLocaleString()}`
+              )
+              .join("<br>");
+        } catch (error) {
+          console.error("Error viewing edits:", error);
+          editsInfo.innerHTML =
+            "Failed to load edits. Check console for details.";
+        }
+        viewEditsButton.textContent = "View Edits";
+      }
+
+      connectButton.addEventListener("click", connectWallet);
+      addOwnerButton.addEventListener("click", addOwner);
+      removeOwnerButton.addEventListener("click", removeOwner);
+      addScholarButton.addEventListener("click", addScholar);
+      removeScholarButton.addEventListener("click", removeScholar);
+      viewScholarsButton.addEventListener("click", viewScholars);
+      addEditButton.addEventListener("click", addEdit);
+      viewEditsButton.addEventListener("click", viewEdits);
+
+      // Check if already connected
+      if (typeof window.ethereum !== "undefined") {
+        window.ethereum
+          .request({ method: "eth_accounts" })
+          .then((accounts) => {
+            if (accounts.length > 0) {
+              connectWallet();
+            }
+          })
+          .catch(console.error);
+
+        // Listen for account changes
+        window.ethereum.on("accountsChanged", (accounts) => {
+          if (accounts.length > 0) {
+            currentAccount = accounts[0];
+            updateUI();
+            checkRole();
+          } else {
+            disconnectWallet();
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
