@@ -21,7 +21,7 @@
   <body>
     <h1>HASS Contract Interaction Simulation</h1>
     <button id="connectButton" class="button">Connect MetaMask</button>
-    <div id="accountInfo"></div>
+    <div id="walletStatus"></div>
 
     <div id="ownerSection" class="section" style="display: none">
       <h2>Owner Actions</h2>
@@ -59,7 +59,7 @@
       let contractABI;
 
       // Load the ABI from the external JSON file
-      fetch("contract-abi.json")
+      fetch("smart_contract/contract-abi.json")
         .then((response) => response.json())
         .then((data) => {
           contractABI = data;
@@ -72,7 +72,6 @@
       let currentAccount;
 
       const connectButton = document.getElementById("connectButton");
-      const accountInfo = document.getElementById("accountInfo");
       const ownerSection = document.getElementById("ownerSection");
       const scholarSection = document.getElementById("scholarSection");
       const addOwnerButton = document.getElementById("addOwnerButton");
@@ -99,40 +98,12 @@
             checkRole();
           } catch (error) {
             console.error("Failed to connect wallet:", error);
-            accountInfo.textContent =
+            walletStatus.textContent =
               "Failed to connect wallet. Please try again.";
           }
         } else {
-          accountInfo.textContent = "Please install MetaMask!";
+          walletStatus.textContent = "Please install MetaMask!";
         }
-      }
-
-      async function disconnectWallet() {
-        if (window.ethereum && window.ethereum.disconnect) {
-          try {
-            await window.ethereum.disconnect();
-          } catch (error) {
-            console.error("Error disconnecting from wallet:", error);
-          }
-        } else if (window.ethereum && window.ethereum.close) {
-          // Fallback for older versions or different providers
-          try {
-            await window.ethereum.close();
-          } catch (error) {
-            console.error("Error closing wallet connection:", error);
-          }
-        }
-
-        // Clear the local state regardless of the wallet provider's disconnect method
-        web3 = null;
-        currentAccount = null;
-        contract = null;
-
-        updateUI();
-        ownerSection.style.display = "none";
-        scholarSection.style.display = "none";
-
-        console.log("Disconnected from wallet");
       }
 
       function truncateAddress(address) {
@@ -144,18 +115,13 @@
 
       function updateUI() {
         if (currentAccount) {
-          connectButton.textContent = "Disconnect";
-          connectButton.onclick = disconnectWallet;
-          accountInfo.innerHTML = `Connected: <button id="switchAccountButton" class="button">${truncateAddress(
-            currentAccount
-          )}</button>`;
-          document.getElementById("switchAccountButton").onclick =
-            switchAccount;
+          connectButton.textContent = truncateAddress(currentAccount);
+          connectButton.onclick = switchAccount;
           viewScholars();
         } else {
           connectButton.textContent = "Connect MetaMask";
           connectButton.onclick = connectWallet;
-          accountInfo.textContent = "";
+          walletStatus.textContent = "";
           scholarsInfo.innerHTML = "";
         }
       }
@@ -287,8 +253,9 @@
       }
 
       async function viewEdits(docIdParam) {
-        const docId = document.getElementById("viewDocId").value || docIdParam;
         viewEditsButton.textContent = "Loading...";
+
+        const docId = document.getElementById("viewDocId").value || docIdParam;
         try {
           const edits = await contract.methods.getDocumentEdits(docId).call();
           editsInfo.innerHTML =
